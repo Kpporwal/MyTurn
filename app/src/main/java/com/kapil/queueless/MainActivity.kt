@@ -1,6 +1,7 @@
 
 
 
+
 package com.kapil.queueless
 
 import android.annotation.SuppressLint
@@ -21,10 +22,14 @@ import android.widget.Toast
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.firestore.SetOptions
 import androidx.activity.ComponentActivity
+import androidx.core.view.WindowCompat
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.systemBars
+import android.graphics.drawable.ColorDrawable
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -123,212 +128,226 @@ class MainActivity : ComponentActivity() {
         }
 
         requestNotificationPermission()
-        enableEdgeToEdge()
+        // Keep system bars outside the app content so status-bar icons never overlap UI.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.setBackgroundDrawable(
+            ColorDrawable(android.graphics.Color.rgb(247, 249, 252))
+        )
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
 
         setContent {
             QueueLessTheme {
-                var currentScreen by remember { mutableStateOf(AppScreen.WELCOME) }
-                var myQueueReturnScreen by remember { mutableStateOf(AppScreen.HOME) }
-                var checkingSession by remember { mutableStateOf(true) }
-                var showAuthHub by remember { mutableStateOf(false) }
-                var authRole by remember { mutableStateOf("customer") }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.systemBars)
+                ) {
+                    var currentScreen by remember { mutableStateOf(AppScreen.WELCOME) }
+                    var myQueueReturnScreen by remember { mutableStateOf(AppScreen.HOME) }
+                    var checkingSession by remember { mutableStateOf(true) }
+                    var showAuthHub by remember { mutableStateOf(false) }
+                    var authRole by remember { mutableStateOf("customer") }
 
-                DisposableEffect(Unit) {
-                    val user = auth.currentUser
+                    DisposableEffect(Unit) {
+                        val user = auth.currentUser
 
-                    if (user == null) {
-                        currentScreen = AppScreen.WELCOME
-                        showAuthHub = false
-                        checkingSession = false
-                    } else {
-                        FirebaseFirestore.getInstance()
-                            .collection("users")
-                            .document(user.uid)
-                            .get()
-                            .addOnSuccessListener { userDoc ->
-                                authRole = userDoc.getString("role") ?: "customer"
+                        if (user == null) {
+                            currentScreen = AppScreen.WELCOME
+                            showAuthHub = false
+                            checkingSession = false
+                        } else {
+                            FirebaseFirestore.getInstance()
+                                .collection("users")
+                                .document(user.uid)
+                                .get()
+                                .addOnSuccessListener { userDoc ->
+                                    authRole = userDoc.getString("role") ?: "customer"
 
-                                if (authRole == "business") {
-                                    FirebaseFirestore.getInstance()
-                                        .collection("businesses")
-                                        .whereEqualTo("ownerId", user.uid)
-                                        .limit(1)
-                                        .get()
-                                        .addOnSuccessListener { businessDocs ->
-                                            val business = businessDocs.documents.firstOrNull()
+                                    if (authRole == "business") {
+                                        FirebaseFirestore.getInstance()
+                                            .collection("businesses")
+                                            .whereEqualTo("ownerId", user.uid)
+                                            .limit(1)
+                                            .get()
+                                            .addOnSuccessListener { businessDocs ->
+                                                val business = businessDocs.documents.firstOrNull()
 
-                                            currentScreen =
-                                                if (business?.getString("status") == "approved") {
-                                                    AppScreen.BUSINESS_DASHBOARD
-                                                } else {
-                                                    AppScreen.BUSINESS_PROFILE
-                                                }
+                                                currentScreen =
+                                                    if (business?.getString("status") == "approved") {
+                                                        AppScreen.BUSINESS_DASHBOARD
+                                                    } else {
+                                                        AppScreen.BUSINESS_PROFILE
+                                                    }
 
-                                            checkingSession = false
-                                            showAuthHub = false
-                                        }
-                                        .addOnFailureListener {
-                                            currentScreen = AppScreen.BUSINESS_PROFILE
-                                            checkingSession = false
-                                            showAuthHub = false
-                                        }
-                                } else {
+                                                checkingSession = false
+                                                showAuthHub = false
+                                            }
+                                            .addOnFailureListener {
+                                                currentScreen = AppScreen.BUSINESS_PROFILE
+                                                checkingSession = false
+                                                showAuthHub = false
+                                            }
+                                    } else {
+                                        currentScreen = AppScreen.HOME
+                                        checkingSession = false
+                                        showAuthHub = false
+                                    }
+                                }
+                                .addOnFailureListener {
                                     currentScreen = AppScreen.HOME
                                     checkingSession = false
                                     showAuthHub = false
                                 }
-                            }
-                            .addOnFailureListener {
-                                currentScreen = AppScreen.HOME
-                                checkingSession = false
+                        }
+
+                        onDispose { }
+                    }
+
+                    if (checkingSession) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFFF9F7FF)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = Color(0xFF6C3CEB))
+                        }
+                    } else if (showAuthHub) {
+                        AuthNavigationHub(
+                            role = authRole,
+                            onBackToWelcome = {
                                 showAuthHub = false
+                                currentScreen = AppScreen.WELCOME
+                            },
+                            onCustomerDashboard = {
+                                showAuthHub = false
+                                currentScreen = AppScreen.HOME
+                            },
+                            onBusinessDashboard = {
+                                showAuthHub = false
+                                currentScreen = AppScreen.BUSINESS_DASHBOARD
+                            },
+                            onBusinessProfile = {
+                                showAuthHub = false
+                                currentScreen = AppScreen.BUSINESS_PROFILE
                             }
-                    }
+                        )
+                    } else {
+                        when (currentScreen) {
+                            AppScreen.WELCOME -> {
+                                WelcomeScreen(
+                                    onCustomerClick = {
+                                        authRole = "customer"
+                                        showAuthHub = true
+                                    },
+                                    onBusinessClick = {
+                                        authRole = "business"
+                                        showAuthHub = true
+                                    }
+                                )
+                            }
 
-                    onDispose { }
-                }
+                            AppScreen.BUSINESS_PROFILE -> {
+                                BusinessRegisterScreen(
+                                    onBackClick = {
+                                        auth.signOut()
+                                        currentScreen = AppScreen.WELCOME
+                                    },
+                                    onApproved = {
+                                        currentScreen = AppScreen.BUSINESS_DASHBOARD
+                                    }
+                                )
+                            }
 
-                if (checkingSession) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFFF9F7FF)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = Color(0xFF6C3CEB))
-                    }
-                } else if (showAuthHub) {
-                    AuthNavigationHub(
-                        role = authRole,
-                        onBackToWelcome = {
-                            showAuthHub = false
-                            currentScreen = AppScreen.WELCOME
-                        },
-                        onCustomerDashboard = {
-                            showAuthHub = false
-                            currentScreen = AppScreen.HOME
-                        },
-                        onBusinessDashboard = {
-                            showAuthHub = false
-                            currentScreen = AppScreen.BUSINESS_DASHBOARD
-                        },
-                        onBusinessProfile = {
-                            showAuthHub = false
-                            currentScreen = AppScreen.BUSINESS_PROFILE
-                        }
-                    )
-                } else {
-                    when (currentScreen) {
-                        AppScreen.WELCOME -> {
-                            WelcomeScreen(
-                                onCustomerClick = {
-                                    authRole = "customer"
-                                    showAuthHub = true
-                                },
-                                onBusinessClick = {
-                                    authRole = "business"
-                                    showAuthHub = true
-                                }
-                            )
-                        }
+                            AppScreen.BUSINESS_DASHBOARD -> {
+                                BusinessDashboardScreen(
+                                    onEditProfile = {
+                                        currentScreen = AppScreen.BUSINESS_EDIT
+                                    },
+                                    onLogout = {
+                                        auth.signOut()
+                                        currentScreen = AppScreen.WELCOME
+                                    }
+                                )
+                            }
 
-                        AppScreen.BUSINESS_PROFILE -> {
-                            BusinessRegisterScreen(
-                                onBackClick = {
-                                    auth.signOut()
-                                    currentScreen = AppScreen.WELCOME
-                                },
-                                onApproved = {
-                                    currentScreen = AppScreen.BUSINESS_DASHBOARD
-                                }
-                            )
-                        }
+                            AppScreen.BUSINESS_EDIT -> {
+                                BusinessEditScreen(
+                                    onBackClick = {
+                                        currentScreen = AppScreen.BUSINESS_DASHBOARD
+                                    },
+                                    onSaved = {
+                                        currentScreen = AppScreen.BUSINESS_DASHBOARD
+                                    }
+                                )
+                            }
 
-                        AppScreen.BUSINESS_DASHBOARD -> {
-                            BusinessDashboardScreen(
-                                onEditProfile = {
-                                    currentScreen = AppScreen.BUSINESS_EDIT
-                                },
-                                onLogout = {
-                                    auth.signOut()
-                                    currentScreen = AppScreen.WELCOME
-                                }
-                            )
-                        }
+                            AppScreen.HOME -> {
+                                HomeScreen(
+                                    onMyQueueClick = {
+                                        myQueueReturnScreen = AppScreen.HOME
+                                        currentScreen = AppScreen.MY_QUEUE
+                                    },
+                                    onProfileClick = {
+                                        currentScreen = AppScreen.PROFILE
+                                    },
+                                    onLogout = {
+                                        auth.signOut()
+                                        currentScreen = AppScreen.WELCOME
+                                    }
+                                )
+                            }
 
-                        AppScreen.BUSINESS_EDIT -> {
-                            BusinessEditScreen(
-                                onBackClick = {
-                                    currentScreen = AppScreen.BUSINESS_DASHBOARD
-                                },
-                                onSaved = {
-                                    currentScreen = AppScreen.BUSINESS_DASHBOARD
-                                }
-                            )
-                        }
+                            AppScreen.MY_QUEUE -> {
+                                MyQueueScreen(
+                                    onBackClick = {
+                                        currentScreen = myQueueReturnScreen
+                                    }
+                                )
+                            }
 
-                        AppScreen.HOME -> {
-                            HomeScreen(
-                                onMyQueueClick = {
-                                    myQueueReturnScreen = AppScreen.HOME
-                                    currentScreen = AppScreen.MY_QUEUE
-                                },
-                                onProfileClick = {
-                                    currentScreen = AppScreen.PROFILE
-                                },
-                                onLogout = {
-                                    auth.signOut()
-                                    currentScreen = AppScreen.WELCOME
-                                }
-                            )
-                        }
+                            AppScreen.PROFILE -> {
+                                ProfileScreen(
+                                    onBackClick = {
+                                        currentScreen = AppScreen.HOME
+                                    },
+                                    onMyQueueClick = {
+                                        myQueueReturnScreen = AppScreen.PROFILE
+                                        currentScreen = AppScreen.MY_QUEUE
+                                    },
+                                    onPrivacySecurityClick = {
+                                        currentScreen = AppScreen.PRIVACY_SECURITY
+                                    },
+                                    onLogout = {
+                                        auth.signOut()
+                                        currentScreen = AppScreen.WELCOME
+                                    }
+                                )
+                            }
 
-                        AppScreen.MY_QUEUE -> {
-                            MyQueueScreen(
-                                onBackClick = {
-                                    currentScreen = myQueueReturnScreen
-                                }
-                            )
-                        }
+                            AppScreen.PRIVACY_SECURITY -> {
+                                PrivacySecurityScreen(
+                                    onBackClick = {
+                                        currentScreen = AppScreen.PROFILE
+                                    },
+                                    onLogout = {
+                                        auth.signOut()
+                                        currentScreen = AppScreen.WELCOME
+                                    },
+                                    onAccountDeleted = {
+                                        auth.signOut()
+                                        currentScreen = AppScreen.WELCOME
+                                    }
+                                )
+                            }
 
-                        AppScreen.PROFILE -> {
-                            ProfileScreen(
-                                onBackClick = {
-                                    currentScreen = AppScreen.HOME
-                                },
-                                onMyQueueClick = {
-                                    myQueueReturnScreen = AppScreen.PROFILE
-                                    currentScreen = AppScreen.MY_QUEUE
-                                },
-                                onPrivacySecurityClick = {
-                                    currentScreen = AppScreen.PRIVACY_SECURITY
-                                },
-                                onLogout = {
-                                    auth.signOut()
-                                    currentScreen = AppScreen.WELCOME
-                                }
-                            )
-                        }
-
-                        AppScreen.PRIVACY_SECURITY -> {
-                            PrivacySecurityScreen(
-                                onBackClick = {
-                                    currentScreen = AppScreen.PROFILE
-                                },
-                                onLogout = {
-                                    auth.signOut()
-                                    currentScreen = AppScreen.WELCOME
-                                },
-                                onAccountDeleted = {
-                                    auth.signOut()
-                                    currentScreen = AppScreen.WELCOME
-                                }
-                            )
-                        }
-
-                        // Auth routes are now handled by AuthNavigationHub.
-                        else -> {
-                            currentScreen = AppScreen.WELCOME
+                            // Auth routes are now handled by AuthNavigationHub.
+                            else -> {
+                                currentScreen = AppScreen.WELCOME
+                            }
                         }
                     }
                 }
@@ -2258,15 +2277,15 @@ class MainActivity : ComponentActivity() {
     fun MyQueueScreen(
         onBackClick: () -> Unit
     ) {
-        val purple = Color(0xFF6C3CEB)
-        val purpleLight = Color(0xFFF3EDFF)
+        val blue = Color(0xFF0B63C7)
+        val blueLight = Color(0xFFEAF3FF)
         val darkText = Color(0xFF252238)
         val grayText = Color(0xFF77717E)
         val green = Color(0xFF249B68)
         val greenLight = Color(0xFFEAF8F1)
         val red = Color(0xFFD32F2F)
         val orange = Color(0xFFE58B2A)
-        val background = Color(0xFFF9F7FF)
+        val background = Color(0xFFF7F9FC)
         val db = FirebaseFirestore.getInstance()
         val context = LocalContext.current
         val user = FirebaseAuth.getInstance().currentUser
@@ -2507,8 +2526,8 @@ class MainActivity : ComponentActivity() {
                 },
                 confirmButton = {
                     TextButton(onClick = { submitReview() }, enabled = !reviewBusy) {
-                        if (reviewBusy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = purple)
-                        else Text(if (reviewByQueueId.containsKey(selectedQueueId)) "Update" else "Submit", color = purple, fontWeight = FontWeight.Bold)
+                        if (reviewBusy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = blue)
+                        else Text(if (reviewByQueueId.containsKey(selectedQueueId)) "Update" else "Submit", color = blue, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = { TextButton(onClick = { showReviewDialog = false }, enabled = !reviewBusy) { Text("Cancel") } }
@@ -2516,13 +2535,13 @@ class MainActivity : ComponentActivity() {
         }
 
         if (loading) {
-            Box(Modifier.fillMaxSize().background(background), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = purple) }
+            Box(Modifier.fillMaxSize().background(background), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = blue) }
             return
         }
 
         Column(Modifier.fillMaxSize().background(background)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBackClick, contentPadding = PaddingValues(0.dp)) { Text("‹", fontSize = 30.sp, color = purple) }
+                TextButton(onClick = onBackClick, contentPadding = PaddingValues(0.dp)) { Text("‹", fontSize = 30.sp, color = blue) }
                 Spacer(Modifier.width(10.dp))
                 Column { Text("My Queue", fontSize = 23.sp, fontWeight = FontWeight.Bold, color = darkText); Text("Your live place in line", fontSize = 11.sp, color = grayText) }
             }
@@ -2538,18 +2557,18 @@ class MainActivity : ComponentActivity() {
                     Card(Modifier.fillMaxWidth(), RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(5.dp)) {
                         Column(Modifier.fillMaxWidth().padding(18.dp)) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(55.dp).clip(RoundedCornerShape(17.dp)).background(purpleLight), contentAlignment = Alignment.Center) { Text("🏪", fontSize = 27.sp) }
+                                Box(Modifier.size(55.dp).clip(RoundedCornerShape(17.dp)).background(blueLight), contentAlignment = Alignment.Center) { Text("🏪", fontSize = 27.sp) }
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) { Text(businessName, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = darkText); Text(category, fontSize = 11.sp, color = grayText) }
                                 Box(Modifier.clip(RoundedCornerShape(50.dp)).background(if (status == "called") Color(0xFFFFF1DD) else greenLight).padding(horizontal = 10.dp, vertical = 6.dp)) { Text(if (status == "called") "● Called" else "● Live", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (status == "called") orange else green) }
                             }
                             Spacer(Modifier.height(18.dp))
-                            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(purpleLight).padding(vertical = 20.dp), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("YOUR TOKEN", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = grayText); Text(if (token > 0) "#${token.toString().padStart(3, '0')}" else "#---", fontSize = 46.sp, fontWeight = FontWeight.ExtraBold, color = purple); Text(if (status == "called") "It's your turn now" else "You're currently in line", fontSize = 10.sp, color = grayText) } }
+                            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(blueLight).padding(vertical = 20.dp), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("YOUR TOKEN", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = grayText); Text(if (token > 0) "#${token.toString().padStart(3, '0')}" else "#---", fontSize = 46.sp, fontWeight = FontWeight.ExtraBold, color = blue); Text(if (status == "called") "It's your turn now" else "You're currently in line", fontSize = 10.sp, color = grayText) } }
                             Spacer(Modifier.height(18.dp))
                             Text("Your position", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = darkText); Spacer(Modifier.height(10.dp))
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(12.dp).clip(CircleShape).background(purple)); Spacer(Modifier.width(8.dp)); Box(Modifier.weight(1f).height(5.dp).clip(RoundedCornerShape(10.dp)).background(if (status == "called") purple else Color(0xFFE8E2F2))); Spacer(Modifier.width(8.dp)); Box(Modifier.size(12.dp).clip(CircleShape).background(if (status == "called") purple else Color(0xFFD7D1DF))) }
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(12.dp).clip(CircleShape).background(blue)); Spacer(Modifier.width(8.dp)); Box(Modifier.weight(1f).height(5.dp).clip(RoundedCornerShape(10.dp)).background(if (status == "called") blue else Color(0xFFD9E8F7))); Spacer(Modifier.width(8.dp)); Box(Modifier.size(12.dp).clip(CircleShape).background(if (status == "called") blue else Color(0xFFC7D9EC))) }
                             Spacer(Modifier.height(6.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Joined", fontSize = 9.sp, color = grayText); Text("Your turn", fontSize = 9.sp, color = grayText) }
-                            Spacer(Modifier.height(18.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { StatBox("People ahead", peopleAhead.toString(), purple, Modifier.weight(1f)); StatBox("Estimated wait", "$waitMinutes min", purple, Modifier.weight(1f)) }
+                            Spacer(Modifier.height(18.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { StatBox("People ahead", peopleAhead.toString(), blue, Modifier.weight(1f)); StatBox("Estimated wait", "$waitMinutes min", blue, Modifier.weight(1f)) }
                         }
                     }
                     Spacer(Modifier.height(14.dp))
@@ -2576,7 +2595,7 @@ class MainActivity : ComponentActivity() {
                                     if (isServed && itemQueueId != null) {
                                         Spacer(Modifier.height(6.dp))
                                         TextButton(onClick = { openReview(item) }, contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp), enabled = !reviewBusy) {
-                                            Text(if (hasReview) "⭐ ${((existingReview?.get("rating") as? Number)?.toInt() ?: 0)}  Edit review" else "☆  Rate this visit", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = purple)
+                                            Text(if (hasReview) "⭐ ${((existingReview?.get("rating") as? Number)?.toInt() ?: 0)}  Edit review" else "☆  Rate this visit", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = blue)
                                         }
                                     }
                                 }
@@ -2607,10 +2626,10 @@ class MainActivity : ComponentActivity() {
         onPrivacySecurityClick: () -> Unit,
         onLogout: () -> Unit
     ) {
-        val purple = Color(0xFF6C3CEB)
-        val purpleDark = Color(0xFF43209D)
-        val purpleSoft = Color(0xFFF1EAFF)
-        val background = Color(0xFFF8F6FC)
+        val blue = Color(0xFF0B63C7)
+        val blueDark = Color(0xFF0758B8)
+        val blueSoft = Color(0xFFEAF3FF)
+        val background = Color(0xFFF7F9FC)
         val dark = Color(0xFF211C32)
         val gray = Color(0xFF77717E)
         val green = Color(0xFF249B68)
@@ -2624,7 +2643,7 @@ class MainActivity : ComponentActivity() {
                     .fillMaxWidth()
                     .background(
                         Brush.verticalGradient(
-                            listOf(purpleDark, purple, Color(0xFF8C62F5))
+                            listOf(blueDark, blue, Color(0xFF147BE8))
                         )
                     )
             ) {
@@ -2687,7 +2706,7 @@ class MainActivity : ComponentActivity() {
                                 .clip(CircleShape)
                                 .background(
                                     Brush.linearGradient(
-                                        listOf(Color(0xFFEBDDFF), Color(0xFFF4EEFF))
+                                        listOf(Color(0xFFDCEBFA), Color(0xFFEAF3FF))
                                     )
                                 ),
                             contentAlignment = Alignment.Center
@@ -2707,14 +2726,14 @@ class MainActivity : ComponentActivity() {
                         Box(
                             Modifier
                                 .clip(RoundedCornerShape(50.dp))
-                                .background(purpleSoft)
+                                .background(blueSoft)
                                 .padding(horizontal = 16.dp, vertical = 7.dp)
                         ) {
                             Text(
                                 "CUSTOMER",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = purple
+                                color = blue
                             )
                         }
                     }
@@ -2741,7 +2760,7 @@ class MainActivity : ComponentActivity() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
-                                Modifier.size(45.dp).clip(RoundedCornerShape(14.dp)).background(purpleSoft),
+                                Modifier.size(45.dp).clip(RoundedCornerShape(14.dp)).background(blueSoft),
                                 contentAlignment = Alignment.Center
                             ) { Text("✉️", fontSize = 20.sp) }
 
@@ -2800,7 +2819,7 @@ class MainActivity : ComponentActivity() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
-                                Modifier.size(45.dp).clip(RoundedCornerShape(14.dp)).background(purpleSoft),
+                                Modifier.size(45.dp).clip(RoundedCornerShape(14.dp)).background(blueSoft),
                                 contentAlignment = Alignment.Center
                             ) { Text("🎟️", fontSize = 20.sp) }
                             Spacer(Modifier.width(13.dp))
@@ -2863,10 +2882,10 @@ class MainActivity : ComponentActivity() {
         onLogout: () -> Unit,
         onAccountDeleted: () -> Unit
     ) {
-        val purple = Color(0xFF6C3CEB)
-        val purpleDark = Color(0xFF43209D)
-        val purpleSoft = Color(0xFFF1EAFF)
-        val background = Color(0xFFF8F6FC)
+        val blue = Color(0xFF0B63C7)
+        val blueDark = Color(0xFF0758B8)
+        val blueSoft = Color(0xFFEAF3FF)
+        val background = Color(0xFFF7F9FC)
         val dark = Color(0xFF211C32)
         val gray = Color(0xFF77717E)
         val green = Color(0xFF249B68)
@@ -2883,7 +2902,7 @@ class MainActivity : ComponentActivity() {
         Column(Modifier.fillMaxSize().background(background)) {
             Box(
                 Modifier.fillMaxWidth().background(
-                    Brush.verticalGradient(listOf(purpleDark, purple, Color(0xFF8C62F5)))
+                    Brush.verticalGradient(listOf(blueDark, blue, Color(0xFF147BE8)))
                 )
             ) {
                 Row(
@@ -2940,7 +2959,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Column {
                         Row(Modifier.fillMaxWidth().padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(purpleSoft), contentAlignment = Alignment.Center) {
+                            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(blueSoft), contentAlignment = Alignment.Center) {
                                 Text("✉️", fontSize = 19.sp)
                             }
                             Spacer(Modifier.width(12.dp))
